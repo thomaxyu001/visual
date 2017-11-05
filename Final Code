@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Data Summary</title>
+	<script src="https://d3js.org/d3.v4.min.js"></script>
+	<script src="https://d3js.org/d3-selection-multi.v1.min.js"></script>
+	<script src="//d3js.org/topojson.v1.min.js"></script>
+	<style>
+		/*path {
+			fill: #a5a5a5;
+			stroke: #ffdbdb;
+			stroke-width: 0.08736px;
+		}*/
+
+		circle {
+			fill: #fec3c1;
+			fill-opacity: 0.274215769052412;
+			stroke: #feadad;
+		}
+
+		path.active {
+			fill: #600000;
+		}
+		circle.active {
+			fill: #ffcfb2;
+		}
+		.x text{
+			text-anchor: end;
+			transform: rotate(-60deg);
+		}
+	</style>
+</head>
+<body>
+<div style="width: 960px; height: 100%; margin: 0 auto; /*background: #ebe5da*/">
+	<svg id="timeSvg" width="960" height="100">
+		<defs>
+			<radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+				<stop offset="0%" style="stop-color:rgb(255,255,255);stop-opacity:1" />
+				<stop offset="100%" style="stop-color:#EAEAEA;stop-opacity:1" />
+			</radialGradient>
+			<radialGradient id="grad2" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+				<stop offset="0%" style="stop-color:rgb(255,255,255);stop-opacity:1" />
+				<stop offset="100%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+			</radialGradient>
+		</defs>
+	</svg>
+	<svg id="svg" width="960" height="500"></svg>
+	<svg id="bar" width="960" height="300">
+
+	</svg>
+</div>
+
+<script>
+	var width = 960,
+		height = 500;
+
+	let margin = {
+		left:50,
+		right:50,
+		top:50,
+		bottom:50
+	};
+
+	var projection = d3.geoMercator();
+
+	var path = d3.geoPath()
+		.projection(projection);
+
+
+	var svg = d3.select("#svg");
+
+
+	var url = "world-110m.json";
+	var url2 = "ne_50m_populated_places_simple.json";
+	let timeAxisHeight = 50;
+
+	d3.json(url, function(error, countries) {
+		d3.json(url2, function(error, places) {
+			if (error) throw error;
+
+			console.log("geojson", countries, places);
+
+			let year = 2016;
+
+			let mapG = svg.append('g');
+			let map = svg.append('g');
+
+
+			mapG.selectAll("path")
+				.data(countries.features)
+				.enter().append("path")
+				.attr("d", path)
+				.style('fill','#a5a5a5')
+				.style('stroke','#ffdbdb')
+				.style('stroke-width','0.08736px');
+
+
+			let trans = {};
+
+			let zoom = d3.zoom()
+				.scaleExtent([1, 8])
+				.on("zoom", () =>{
+					trans["stroke-width"] = 1.5 / d3.event.transform.k + "px";
+					trans["transform"]= d3.event.transform;
+
+					mapG.style("stroke-width", trans["stroke-width"]);
+					mapG.attr("transform", trans["transform"]);
+
+					map.style("stroke-width", trans["stroke-width"]);
+					map.attr("transform", trans["transform"]);
+				});
+			svg.call(zoom);
+
+
+
+			d3.csv("data.csv",row=>{
+					row.Year = +row.Year;
+					row['dead_and_missing'] = +row['dead_and_missing']; return row;
+				}, function(data){
+				let nestD = d3.nest().key(d=>d.Year).entries(data);
+				let nest_Cause = d3.nest()
+					.key(d=>d.Year).key(d=>d['cause_of_death']).entries(data);
+
+				console.log(nest_Cause);
+				let causeArr2 = nest_Cause.map(c=>{
+					let obj = {};
+					obj.time = c.key;
+					let _n = c.values;
+
+					obj.values = _n.map(d=>{
+						let _dd = {};
+						_dd.cause = d.key;
+						_dd.value = d3.sum(d.values,dd=>dd['dead_and_missing']);
+						return _dd;
+					});
+
+					return obj;
+				});
+
+				console.log(causeArr2);
+
+				let color = d3.interpolateRainbow;
+
+				let years = nestD.map(d=>+d.key).sort();
+
+				console.log(years);
+				let scale = d3.scaleLinear().domain(d3.extent(years)).range([margin.left, width - margin.right]);
+
+				let timeSvg = d3.select("#timeSvg");
+				let barSvg = d3.select("#bar");
+				let barG = barSvg.append('g');
+				let bar_axis_g = barSvg.append('g');
+
+				//添加时间轴
+				timeSvg.append('g').append('line')
+					.attr('x1',0)
+					.attr('y1',timeAxisHeight)
+					.attr('x2',width)
+					.attr('y2',timeAxisHeight)
+					.attr('stroke-dasharray',"10,10")
+					.attr('stroke','#EFD816');
+				timeSvg.append('g')
+					.selectAll('.year')
+					.data(years).enter()
+					.append('circle')
+					.attr('class','year')
+					.attr('cx',d=>scale(d))
+					.attr('cy',timeAxisHeight)
+					.attr('year',d=>d)
+					.attr('r',12)
+					.style('fill','url(#grad1)')
+					.style('fill-opacity',1)
+					.on('mouseover',function () {
+						d3.select(this).style('fill','url(#grad2)');
+					})
+					.on('mouseout',function () {
+						let target = d3.select(this);
+						if(target.attr('flag') !== 'click'){
+							target.style('fill','url(#grad1)');
+						}
+					})
+					.on('click',function () {
+						let target = d3.select(this);
+						d3.selectAll('.year').style('fill','url(#grad1)').attr('flag','');
+						target.attr('flag','click');
+						target.style('fill','url(#grad2)');
+						year = +target.attr('year');
+						render(year);
+					});
+
+				timeSvg.append('g')
+					.selectAll('text')
+					.data(years).enter()
+					.append('text')
+					.attr('x',d=>scale(d))
+					.attr('y',timeAxisHeight + 30)
+					.text(d=>d)
+					.style('text-anchor','middle');
+
+
+
+
+				function render(year) {
+					map.remove();
+					map = svg.append('g');
+
+					map.style("stroke-width",trans["stroke-width"]);
+					map.attr("transform",trans["transform"]);
+
+
+
+					let data = nestD.find(n=>+n.key === year);
+					if(!data) return;
+					data = data.values;
+					for(let i = 0; i < data.length; i ++){
+						map.append("circle")
+							.attr("cx", projection([data[i].longitude,data[i].latitude])[0])
+							.attr("cy", projection([data[i].longitude,data[i].latitude])[1])
+							.attr("r", Math.sqrt(data[i]['dead_and_missing']))
+							.style("fill", "red");
+					}
+
+					//nest_Cause
+
+					let causeArr = causeArr2.find(d=>+d.time === year);
+
+					console.log(causeArr);
+
+					let barScale_x = d3.scaleBand().paddingInner(0.5)
+						.domain(causeArr.values.map(c=>c.cause)).rangeRound([50,910]);
+
+					let y_extent = d3.extent(causeArr.values,d=>d.value);
+					console.log(y_extent);
+
+					let barScale_y = d3.scaleLinear()
+						.domain(y_extent).range([250,50]);
+					console.log(barScale_y(y_extent[0]));
+
+
+					barG.remove();
+					barG = barSvg.append('g');
+					let bars = barG.selectAll('rect')
+						.data(causeArr.values);
+					bars.enter().append('rect')
+						.merge(bars)
+						.attr('v',d=>d['value'])
+						.attr('x',d=>barScale_x(d.cause))
+						.attr('y',d => barScale_y(d['value']))
+						.attr('width', barScale_x.bandwidth())
+						.attr('height', d =>barScale_y(y_extent[0]) - barScale_y(d['value']))
+						.style('fill','red');
+
+
+					bar_axis_g.remove();
+					bar_axis_g = barSvg.append('g');
+
+					//坐标轴
+					bar_axis_g.append("g")
+						.attr("class", "axis x")
+						.attr("transform", "translate(0,250)")
+						.call(d3.axisBottom(barScale_x));
+
+					bar_axis_g.append('g')
+						.append("text")
+						.attr("x", 930)
+						.attr("y", barScale_y(barScale_y.ticks()[0]) - 10)
+						.attr("fill", "#000")
+						.style('font-size',10)
+						.attr("font-weight", "bold")
+						.attr("text-anchor", "end")
+						.text("Cause");
+
+					bar_axis_g.append("g")
+						.attr("class", "axis")
+						.attr("transform", "translate(50,0)")
+						.call(d3.axisLeft(barScale_y))
+						.append("text")
+						.attr("x", 2)
+						.attr("y", barScale_y(barScale_y.ticks().pop()) - 17)
+						.attr("fill", "#000")
+						.attr("font-weight", "bold")
+						.attr("text-anchor", "end")
+						.text("Number");
+				}
+
+				render(2016);
+
+			});
+
+
+
+		});
+	});
+</script>
+</body>
+</html>
